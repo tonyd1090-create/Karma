@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Karma — Multiplayer (vs. CPUs)</title>
+<style>
+  :root {
+    --felt: #15663f;
+    --felt-dark: #0e4a2d;
+    --gold: #f5c542;
+    --card-bg: #fdfdf7;
+    --card-back: repeating-linear-gradient(45deg, #b22222 0 8px, #8b1a1a 8px 16px);
+    --red: #cc2b2b;
+    --black: #1a1a1a;
+    --shadow: 0 4px 10px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at 50% 35%, var(--felt) 0%, var(--felt-dark) 80%);
+    color: #fff;
+    min-height: 100vh;
+    user-select: none;
+  }
+  header { text-align: center; padding: 12px 10px 2px; }
+  header h1 { margin: 0; font-size: 24px; letter-spacing: 1px; color: var(--gold); text-shadow: 0 2px 4px rgba(0,0,0,.5); }
+  header p { margin: 3px 0 0; font-size: 12px; opacity: .85; }
+
+  #table { max-width: 980px; margin: 0 auto; padding: 6px 14px 24px; }
+
+  /* Opponents row */
+  #opponents { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 6px 0; }
+  .opp {
+    background: rgba(0,0,0,.14);
+    border-radius: 12px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255,255,255,.08);
+    flex: 1 1 200px;
+    max-width: 300px;
+    min-width: 180px;
+  }
+  .opp.active-turn, .player-area.active-turn {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 2px rgba(245,197,66,.35);
+  }
+  .opp .head { display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:13px; margin-bottom:5px; }
+  .opp .head .count { font-size: 11px; opacity:.8; font-weight:400; }
+  .opp .sub { font-size: 11px; opacity:.7; margin-top:4px; }
+  .opp .row { min-height: 64px; }
+
+  .zone-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; opacity: .8; margin: 6px 0 3px; }
+  .row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+
+  .player-area {
+    background: rgba(0,0,0,.12);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    border: 1px solid rgba(255,255,255,.08);
+  }
+  .area-title { font-weight: 600; font-size: 15px; display:flex; justify-content:space-between; align-items:center; }
+  .area-title .count { font-size: 12px; opacity:.8; font-weight: 400; }
+
+  /* Cards */
+  .card {
+    width: 58px; height: 82px;
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: var(--black);
+    position: relative;
+    box-shadow: var(--shadow);
+    flex: 0 0 auto;
+    transition: transform .12s ease, box-shadow .12s ease;
+    display: flex;
+  }
+  .card.mini { width: 40px; height: 58px; }
+  .card .rank-tl, .card .rank-br { position: absolute; font-weight: 700; line-height: 1; text-align: center; }
+  .card .rank-tl { top: 4px; left: 5px; font-size: 13px; }
+  .card .rank-br { bottom: 4px; right: 5px; font-size: 13px; transform: rotate(180deg); }
+  .card.mini .rank-tl, .card.mini .rank-br { font-size: 10px; }
+  .card .suit-mid { margin: auto; font-size: 24px; }
+  .card.mini .suit-mid { font-size: 16px; }
+  .card.red { color: var(--red); }
+  .card.black { color: var(--black); }
+  .card.back { background: var(--card-back); border: 2px solid #fff2; }
+  .card.empty { background: rgba(255,255,255,.06); border: 2px dashed rgba(255,255,255,.25); box-shadow: none; }
+  .card.magic::after { content: "★"; position: absolute; top: 3px; right: 5px; color: var(--gold); font-size: 11px; text-shadow: 0 0 3px #0008; }
+  .card.mini.magic::after { font-size: 8px; top:2px; right:3px; }
+  .card.playable { cursor: pointer; }
+  .card.playable:hover { transform: translateY(-8px); box-shadow: 0 10px 16px rgba(0,0,0,.45); }
+  .card.selected { transform: translateY(-12px); box-shadow: 0 0 0 3px var(--gold), var(--shadow); }
+  .card.disabled { opacity: .55; }
+
+  /* Turn-order indicator */
+  #turn-order { display: flex; justify-content: center; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 2px; }
+  .turn-pill {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 999px;
+    background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.12);
+    font-size: 13px; font-weight: 600; opacity: .65;
+    transition: opacity .15s, transform .15s;
+  }
+  .turn-pill.current {
+    background: var(--gold); color: #2a2200; opacity: 1;
+    box-shadow: 0 0 0 2px rgba(245,197,66,.35); transform: translateY(-1px);
+  }
+  .turn-arrow { opacity: .45; font-size: 12px; }
+
+  #center { display: flex; justify-content: center; align-items: center; gap: 40px; margin: 8px 0; min-height: 104px; }
+  .stack { text-align: center; }
+  .stack .label { font-size: 12px; opacity: .8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+  .pile-wrap { position: relative; width: 58px; height: 82px; margin: 0 auto; }
+  .pile-wrap .card { position: absolute; top: 0; left: 0; }
+
+  #message { text-align: center; min-height: 22px; font-size: 15px; margin: 6px 0; color: var(--gold); font-weight: 600; }
+
+  #controls { text-align: center; margin-top: 8px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  button {
+    font-size: 14px; font-weight: 600; padding: 10px 18px; border-radius: 8px; border: none;
+    cursor: pointer; background: var(--gold); color: #2a2200; box-shadow: var(--shadow);
+    transition: transform .1s, opacity .1s;
+  }
+  button:hover:not(:disabled) { transform: translateY(-2px); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.secondary { background: #ffffff22; color: #fff; border: 1px solid #ffffff44; }
+
+  #rules { max-width: 980px; margin: 10px auto 30px; padding: 0 16px; font-size: 12.5px; line-height: 1.5; opacity: .85; }
+  #rules details { background: rgba(0,0,0,.18); border-radius: 10px; padding: 8px 14px; }
+  #rules summary { cursor: pointer; font-weight: 600; opacity: 1; }
+  #rules ul { margin: 8px 0; padding-left: 18px; }
+
+  /* Overlays */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.72);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  .overlay.show { display: flex; }
+  .overlay .box {
+    background: linear-gradient(160deg, #1d7a4c, #0c3d24);
+    padding: 30px 36px; border-radius: 16px; text-align: center;
+    border: 2px solid var(--gold); box-shadow: 0 20px 50px #000a; max-width: 420px;
+  }
+  .overlay h2 { margin: 0 0 10px; font-size: 26px; color: var(--gold); }
+  .overlay p { margin: 0 0 18px; font-size: 15px; }
+  .opt-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>♠ KARMA ♥</h1>
+  <p>You vs. up to 3 computers. First to shed every card wins.</p>
+</header>
+
+<div id="table">
+  <div id="turn-order"></div>
+  <div id="opponents"></div>
+
+  <div id="center">
+    <div class="stack">
+      <div class="label">Deck</div>
+      <div class="pile-wrap" id="deck-wrap"></div>
+      <div id="deck-count" style="font-size:12px;margin-top:6px;opacity:.8;"></div>
+    </div>
+    <div class="stack">
+      <div class="label">Pile</div>
+      <div class="pile-wrap" id="pile-wrap"></div>
+      <div id="pile-count" style="font-size:12px;margin-top:6px;opacity:.8;"></div>
+    </div>
+  </div>
+
+  <div id="message"></div>
+  <div id="controls"></div>
+
+  <div class="player-area" id="you-area">
+    <div class="area-title">🧑 You <span class="count" id="you-count"></span></div>
+    <div class="zone-label">Hand</div>
+    <div class="row" id="you-hand"></div>
+    <div class="zone-label">Face-up</div>
+    <div class="row" id="you-faceup"></div>
+    <div class="zone-label">Face-down</div>
+    <div class="row" id="you-facedown"></div>
+  </div>
+</div>
+
+<div id="rules">
+  <details>
+    <summary>How to play / rules used</summary>
+    <ul>
+      <li>Each player gets 3 face-down cards, 3 face-up on top, and 3 in hand.</li>
+      <li><b>Swap phase:</b> click a hand card then a face-up card to swap them. Put your weakest cards face up. Click <b>Ready</b>.</li>
+      <li>Play a card <b>equal to or higher</b> than the top of the pile. Stack multiple cards of the <b>same rank</b> at once.</li>
+      <li>While the deck lasts, draw back up to 3 after playing. Can't play? <b>Pick up the whole pile.</b></li>
+      <li>Play your <b>hand</b> first, then <b>face-up</b>, then <b>face-down</b> (blind!).</li>
+      <li><b>★ Magic:</b> <b>2</b> resets the pile. <b>10</b> burns the pile and you go again. <b>7</b> forces the next player to play 7 or lower. Four of a rank in a row burns the pile.</li>
+      <li><b>First player to get rid of all cards wins — the game ends immediately.</b></li>
+    </ul>
+  </details>
+</div>
+
+<!-- Setup overlay -->
+<div class="overlay" id="setup">
+  <div class="box">
+    <h2>Choose your table</h2>
+    <p>How many computer opponents?</p>
+    <div class="opt-btns">
+      <button onclick="newGame(1)">1 Opponent</button>
+      <button onclick="newGame(2)">2 Opponents</button>
+      <button onclick="newGame(3)">3 Opponents</button>
+    </div>
+  </div>
+</div>
+
+<!-- Result overlay -->
+<div class="overlay" id="result">
+  <div class="box">
+    <h2 id="result-title"></h2>
+    <p id="result-text"></p>
+    <div class="opt-btns">
+      <button onclick="rematch()">Rematch</button>
+      <button class="secondary" onclick="showSetup()">Change Table</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- Card model ---------- */
+const SUITS = [ {s:"♠",color:"black"}, {s:"♥",color:"red"}, {s:"♦",color:"red"}, {s:"♣",color:"black"} ];
+const RANKS = [
+  {r:"2",v:2},{r:"3",v:3},{r:"4",v:4},{r:"5",v:5},{r:"6",v:6},{r:"7",v:7},{r:"8",v:8},
+  {r:"9",v:9},{r:"10",v:10},{r:"J",v:11},{r:"Q",v:12},{r:"K",v:13},{r:"A",v:14},
+];
+const MAGIC = new Set([2, 10]);
+const CPU_DELAY = 1600; // pause (ms) before each computer move, so you can follow the action
+
+// Pool of opponents — a random subset is picked each game.
+const NAME_POOL = [
+  { name: "Ava",    emoji: "👧" },
+  { name: "Marcus", emoji: "🧔" },
+  { name: "Priya",  emoji: "👩" },
+  { name: "Diego",  emoji: "🧑" },
+  { name: "Nina",   emoji: "👩‍🦰" },
+  { name: "Theo",   emoji: "👦" },
+  { name: "Lena",   emoji: "👱‍♀️" },
+  { name: "Omar",   emoji: "👨‍🦱" },
+];
+
+let deck, pile, players, current, phase, selected, busy, lastOpponents = 2;
+// players[0] is always You. players[1..] are CPUs.
+
+function buildDeck() {
+  const d = []; let id = 0;
+  for (const su of SUITS) for (const rk of RANKS)
+    d.push({ id: id++, r: rk.r, v: rk.v, suit: su.s, color: su.color });
+  return d;
+}
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+
+/* ---------- Setup ---------- */
+function showSetup() {
+  document.getElementById("result").classList.remove("show");
+  document.getElementById("setup").classList.add("show");
+}
+function rematch() { newGame(lastOpponents); }
+
+function newGame(opponents) {
+  lastOpponents = opponents;
+  document.getElementById("setup").classList.remove("show");
+  document.getElementById("result").classList.remove("show");
+
+  deck = shuffle(buildDeck());
+  pile = []; selected = []; busy = false;
+
+  players = [];
+  players.push({ name: "You", emoji: "🧑", hand: [], faceUp: [], faceDown: [], cpu: false });
+  const picks = shuffle([...NAME_POOL]).slice(0, opponents);
+  for (let i = 0; i < opponents; i++)
+    players.push({ name: picks[i].name, emoji: picks[i].emoji, hand: [], faceUp: [], faceDown: [], cpu: true });
+
+  for (const p of players) {
+    p.faceDown = deck.splice(0, 3);
+    p.faceUp = deck.splice(0, 3);
+    p.hand = deck.splice(0, 3);
+    p.hand.sort((a, b) => a.v - b.v);
+  }
+  // CPUs auto-arrange: keep highest 3 face up
+  for (const p of players) if (p.cpu) cpuSwapSetup(p);
+
+  phase = "swap";
+  current = 0;
+  setMessage("Swap phase: click a hand card, then a face-up card to swap. Put your weakest cards face up.");
+  render();
+}
+
+function cpuSwapSetup(p) {
+  const all = [...p.hand, ...p.faceUp].sort((a, b) => b.v - a.v);
+  p.faceUp = all.slice(0, 3);
+  p.hand = all.slice(3).sort((a, b) => a.v - b.v);
+}
+
+/* ---------- Validity ---------- */
+function topCard() { return pile.length ? pile[pile.length - 1] : null; }
+function canPlayOn(card, top) {
+  if (!top) return true;
+  if (MAGIC.has(card.v)) return true;
+  if (top.v === 2) return true;
+  if (top.v === 7) return card.v <= 7;
+  return card.v >= top.v;
+}
+function activeZone(p) {
+  if (p.hand.length) return "hand";
+  if (p.faceUp.length) return "faceUp";
+  return "faceDown";
+}
+function hasAnyValidMove(p) {
+  const zone = activeZone(p);
+  if (zone === "faceDown") return true;
+  return p[zone].some(c => canPlayOn(c, topCard()));
+}
+function isEmptyHanded(p) { return p.hand.length === 0 && p.faceUp.length === 0 && p.faceDown.length === 0; }
+function nextIndex(i) { return (i + 1) % players.length; }
+
+/* ---------- Core mechanics ---------- */
+function applyPlay(p, cards) {
+  const zone = activeZone(p);
+  p[zone] = p[zone].filter(c => !cards.includes(c));
+  for (const c of cards) pile.push(c);
+  while (deck.length && p.hand.length < 3) p.hand.push(deck.shift());
+  p.hand.sort((a, b) => a.v - b.v);
+
+  let burned = false;
+  if (cards.some(c => c.v === 10)) burned = true;
+  if (!burned && pile.length >= 4) {
+    const topRank = pile[pile.length - 1].v;
+    let run = 0;
+    for (let i = pile.length - 1; i >= 0 && pile[i].v === topRank; i--) run++;
+    if (run >= 4) burned = true;
+  }
+  if (burned) pile = [];
+  return { burned };
+}
+function pickUpPile(p) {
+  for (const c of pile) p.hand.push(c);
+  pile = [];
+  p.hand.sort((a, b) => a.v - b.v);
+}
+function checkWin(p) {
+  if (isEmptyHanded(p)) { endGame(p); return true; }
+  return false;
+}
+function endGame(winner) {
+  phase = "over";
+  render();
+  const won = winner === players[0];
+  document.getElementById("result-title").textContent = won ? "🎉 You Win!" : "You lose";
+  document.getElementById("result-text").textContent = won
+    ? "You shed all your cards first. Glorious."
+    : winner.name + " emptied their cards first. Better luck next deal.";
+  document.getElementById("result").classList.add("show");
+}
+
+/* ---------- Human turn ---------- */
+function you() { return players[0]; }
+function isYourTurn() { return phase === "play" && current === 0; }
+
+function onCardClick(zone, card) {
+  if (busy) return;
+  if (phase === "swap") { handleSwapClick(zone, card); return; }
+  if (!isYourTurn()) return;
+  if (zone !== activeZone(you())) return;
+
+  if (zone === "faceDown") { playFaceDown(card); return; }
+
+  const already = selected.includes(card);
+  if (already) {
+    selected = selected.filter(c => c !== card);
+  } else {
+    if (selected.length && selected[0].v !== card.v) selected = [];
+    if (!canPlayOn(card, topCard())) {
+      setMessage("That card can't beat the pile. Pick a higher card or pick up.");
+      return;
+    }
+    selected.push(card);
+  }
+  if (selected.length) {
+    const z = activeZone(you());
+    const more = you()[z].some(c => c.v === selected[0].v && !selected.includes(c));
+    setMessage(`Selected ${selected.length} × ${selected[0].r}.` +
+      (more ? ` Click another ${selected[0].r} to play them together, or` : " Hit") + " Play Selected.");
+  } else {
+    setMessage("Your turn. Play a card equal to or higher than the pile.");
+  }
+  render();
+}
+
+function handleSwapClick(zone, card) {
+  if (zone !== "hand" && zone !== "faceUp") return;
+  if (!selected.length) {
+    selected = [{ zone, card }];
+    setMessage("Now click a " + (zone === "hand" ? "face-up" : "hand") + " card to swap with it.");
+    render(); return;
+  }
+  const first = selected[0];
+  if (first.zone === zone) { selected = [{ zone, card }]; render(); return; }
+  const handItem = first.zone === "hand" ? first.card : card;
+  const upItem = first.zone === "faceUp" ? first.card : card;
+  const me = you();
+  me.hand[me.hand.indexOf(handItem)] = upItem;
+  me.faceUp[me.faceUp.indexOf(upItem)] = handItem;
+  me.hand.sort((a, b) => a.v - b.v);
+  selected = [];
+  setMessage("Swap phase: keep swapping, or click Ready.");
+  render();
+}
+
+function readyUp() {
+  selected = [];
+  phase = "play";
+  current = 0;
+  setMessage("Your turn. Play a card equal to or higher than the pile.");
+  render();
+}
+
+function playSelected() {
+  if (busy || !isYourTurn() || !selected.length) return;
+  const cards = [...selected];
+  selected = [];
+  const { burned } = applyPlay(you(), cards);
+  if (checkWin(you())) return;
+  if (burned) { setMessage("🔥 Pile burned! Go again."); render(); }
+  else advanceFrom(0);
+}
+
+function playFaceDown(card) {
+  if (busy) return;
+  const valid = canPlayOn(card, topCard());
+  if (valid) {
+    const { burned } = applyPlay(you(), [card]);
+    if (checkWin(you())) return;
+    if (burned) { setMessage("🔥 Flipped " + card.r + card.suit + " — burned! Go again."); render(); }
+    else { setMessage("Flipped " + card.r + card.suit + " — it plays."); advanceFrom(0); }
+  } else {
+    you().faceDown = you().faceDown.filter(c => c !== card);
+    you().hand.push(card);
+    pickUpPile(you());
+    setMessage("Flipped " + card.r + card.suit + " — can't beat the pile. You pick it all up.");
+    advanceFrom(0);
+  }
+}
+
+function pickUp() {
+  if (busy || !isYourTurn()) return;
+  selected = [];
+  pickUpPile(you());
+  setMessage("You picked up the pile.");
+  advanceFrom(0);
+}
+
+/* ---------- Turn flow ---------- */
+// Move from a player who just finished their (non-burn) turn to the next player.
+function advanceFrom(i) {
+  current = nextIndex(i);
+  render();
+  driveCpus();
+}
+
+// If it's a CPU's turn, run CPU steps with pacing; stop when it's the human's turn or game over.
+function driveCpus() {
+  if (phase === "over") return;
+  if (!players[current].cpu) { busy = false; render(); return; }
+  busy = true;
+  setTimeout(cpuStep, CPU_DELAY);
+}
+
+function cpuStep() {
+  if (phase === "over") return;
+  const p = players[current];
+  const zone = activeZone(p);
+
+  if (zone === "faceDown") {
+    const card = p.faceDown[Math.floor(Math.random() * p.faceDown.length)];
+    if (canPlayOn(card, topCard())) {
+      const { burned } = applyPlay(p, [card]);
+      setMessage(p.name + " flips " + card.r + card.suit + " — it plays.");
+      if (checkWin(p)) return;
+      render();
+      if (burned) { setTimeout(cpuStep, CPU_DELAY); return; }
+    } else {
+      p.faceDown = p.faceDown.filter(c => c !== card);
+      p.hand.push(card);
+      pickUpPile(p);
+      setMessage(p.name + " flips " + card.r + card.suit + " — picks up the pile.");
+      render();
+    }
+    return advanceFrom(current);
+  }
+
+  const cards = chooseCpuPlay(p, zone);
+  if (!cards) {
+    pickUpPile(p);
+    setMessage(p.name + " picks up the pile.");
+    render();
+    return advanceFrom(current);
+  }
+  const { burned } = applyPlay(p, cards);
+  setMessage(p.name + " plays " + cards.map(c => c.r + c.suit).join(" "));
+  if (checkWin(p)) return;
+  render();
+  if (burned) {
+    setTimeout(() => { setMessage("🔥 " + p.name + " burned the pile — goes again."); setTimeout(cpuStep, CPU_DELAY); }, 700);
+    return;
+  }
+  advanceFrom(current);
+}
+
+function chooseCpuPlay(p, zone) {
+  const top = topCard();
+  const valid = p[zone].filter(c => canPlayOn(c, top));
+  if (!valid.length) return null;
+  const nonMagic = valid.filter(c => !MAGIC.has(c.v) && c.v !== 7).sort((a, b) => a.v - b.v);
+  let chosen = nonMagic[0];
+  if (!chosen) {
+    const order = { 7: 0, 2: 1, 10: 2 };
+    chosen = valid.sort((a, b) => order[a.v] - order[b.v])[0];
+  }
+  return p[zone].filter(c => c.v === chosen.v);
+}
+
+/* ---------- Rendering ---------- */
+function setMessage(m) { document.getElementById("message").textContent = m; }
+
+function cardEl(card, opts = {}) {
+  const el = document.createElement("div");
+  if (opts.back) { el.className = "card back" + (opts.mini ? " mini" : ""); return el; }
+  if (opts.empty) { el.className = "card empty" + (opts.mini ? " mini" : ""); return el; }
+  el.className = "card " + (card.color || "") + (opts.mini ? " mini" : "");
+  if (MAGIC.has(card.v) || card.v === 7) el.classList.add("magic");
+  el.innerHTML =
+    `<span class="rank-tl">${card.r}<br>${card.suit}</span>` +
+    `<span class="suit-mid">${card.suit}</span>` +
+    `<span class="rank-br">${card.r}<br>${card.suit}</span>`;
+  if (opts.playable) el.classList.add("playable");
+  if (opts.selected) el.classList.add("selected");
+  if (opts.disabled) el.classList.add("disabled");
+  if (opts.onClick) el.addEventListener("click", opts.onClick);
+  return el;
+}
+
+function renderTurnOrder() {
+  const el = document.getElementById("turn-order");
+  el.innerHTML = "";
+  if (phase !== "play") { el.style.display = "none"; return; }
+  el.style.display = "flex";
+  players.forEach((p, i) => {
+    if (i > 0) {
+      const arrow = document.createElement("span");
+      arrow.className = "turn-arrow";
+      arrow.textContent = "➜";
+      el.appendChild(arrow);
+    }
+    const pill = document.createElement("span");
+    pill.className = "turn-pill" + (current === i ? " current" : "");
+    pill.innerHTML = `<span>${p.emoji}</span><span>${p.name}</span>`;
+    el.appendChild(pill);
+  });
+}
+
+function renderOpponents() {
+  const wrap = document.getElementById("opponents");
+  wrap.innerHTML = "";
+  for (let i = 1; i < players.length; i++) {
+    const p = players[i];
+    const panel = document.createElement("div");
+    panel.className = "opp" + (phase === "play" && current === i ? " active-turn" : "");
+    const total = p.hand.length + p.faceUp.length + p.faceDown.length;
+    const head = document.createElement("div");
+    head.className = "head";
+    head.innerHTML = `<span>${p.emoji} ${p.name}</span><span class="count">${total} cards</span>`;
+    panel.appendChild(head);
+
+    const fuRow = document.createElement("div");
+    fuRow.className = "row";
+    if (!p.faceUp.length) fuRow.appendChild(cardEl(null, { empty: true, mini: true }));
+    else p.faceUp.forEach(c => fuRow.appendChild(cardEl(c, { mini: true })));
+    panel.appendChild(fuRow);
+
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    sub.textContent = `Hand: ${p.hand.length}  •  Face-down: ${p.faceDown.length}`;
+    panel.appendChild(sub);
+    wrap.appendChild(panel);
+  }
+}
+
+function renderRow(elId, cards, mode) {
+  const row = document.getElementById(elId);
+  row.innerHTML = "";
+  if (!cards.length) { row.appendChild(cardEl(null, { empty: true })); return; }
+  for (const card of cards) {
+    const zoneOf = mode;
+    const yourTurn = isYourTurn();
+
+    if (zoneOf === "faceDown") {
+      const canClick = yourTurn && activeZone(you()) === "faceDown";
+      const el = cardEl(card, { back: true });
+      if (canClick) { el.classList.add("playable"); el.addEventListener("click", () => onCardClick("faceDown", card)); }
+      row.appendChild(el);
+      continue;
+    }
+
+    let playable = false, disabled = false;
+    if (phase === "swap" && (zoneOf === "hand" || zoneOf === "faceUp")) {
+      playable = true;
+    } else if (yourTurn && zoneOf === activeZone(you())) {
+      playable = canPlayOn(card, topCard()); disabled = !playable;
+    }
+    const selectedNow = phase === "swap"
+      ? selected.some(s => s.card === card)
+      : selected.includes(card);
+    row.appendChild(cardEl(card, {
+      playable, disabled, selected: selectedNow,
+      onClick: () => onCardClick(zoneOf, card),
+    }));
+  }
+}
+
+function render() {
+  renderTurnOrder();
+  renderOpponents();
+
+  const me = you();
+  renderRow("you-hand", me.hand, "hand");
+  renderRow("you-faceup", me.faceUp, "faceUp");
+  renderRow("you-facedown", me.faceDown, "faceDown");
+  document.getElementById("you-count").textContent =
+    `${me.hand.length + me.faceUp.length + me.faceDown.length} cards`;
+  document.getElementById("you-area").classList.toggle("active-turn", isYourTurn());
+
+  const dw = document.getElementById("deck-wrap");
+  dw.innerHTML = "";
+  dw.appendChild(deck.length ? cardEl({}, { back: true }) : cardEl(null, { empty: true }));
+  document.getElementById("deck-count").textContent = deck.length + " left";
+
+  const pw = document.getElementById("pile-wrap");
+  pw.innerHTML = "";
+  if (!pile.length) { pw.appendChild(cardEl(null, { empty: true })); }
+  else {
+    const start = Math.max(0, pile.length - 3);
+    for (let i = start; i < pile.length; i++) {
+      const c = cardEl(pile[i], {});
+      c.style.transform = `translate(${(i - start) * 3}px, ${(i - start) * -2}px)`;
+      pw.appendChild(c);
+    }
+  }
+  document.getElementById("pile-count").textContent = pile.length ? pile.length + " in pile" : "";
+
+  renderControls();
+}
+
+function renderControls() {
+  const c = document.getElementById("controls");
+  c.innerHTML = "";
+  const mk = (label, fn, cls) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.addEventListener("click", fn);
+    return b;
+  };
+  if (phase === "swap") {
+    c.appendChild(mk("Ready", readyUp));
+  } else if (phase === "play") {
+    const playBtn = mk("Play Selected", playSelected);
+    playBtn.disabled = !(isYourTurn() && selected.length);
+    c.appendChild(playBtn);
+    const puBtn = mk("Pick Up Pile", pickUp, "secondary");
+    puBtn.disabled = !(isYourTurn() && pile.length);
+    c.appendChild(puBtn);
+  }
+}
+
+/* ---------- Go ---------- */
+showSetup();
+</script>
+</body>
+</html>
